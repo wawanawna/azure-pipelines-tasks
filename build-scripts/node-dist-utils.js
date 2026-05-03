@@ -31,7 +31,7 @@ function cleanNodeDistribution(nodeDir) {
         ];
 
     for (const componentPath of pathsToRemove) {
-        if (fs.existsSync(componentPath)) {
+        if (fs.lstatSync(componentPath, { throwIfNoEntry: false })) {
             rm('-rf', componentPath);
         }
     }
