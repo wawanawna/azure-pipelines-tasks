@@ -42,6 +42,14 @@ async function run() {
         let scriptPath = convertToNullIfUndefined(tl.getPathInput('ScriptPath', false));
         let scriptInline: string = convertToNullIfUndefined(tl.getInput('Inline', false));
         let scriptArguments: string = convertToNullIfUndefined(tl.getInput('ScriptArguments', false));
+        // MSRC 129198: a CR/LF in ScriptArguments / ScriptPath is a PowerShell statement separator at
+        // the dot-source sink below — reject it (parity with the Windows handler, AzurePowerShell.ps1).
+        if (scriptType.toUpperCase() === 'FILEPATH' && scriptPath && /[\r\n]/.test(scriptPath)) {
+            throw new Error(tl.loc('InvalidScriptPath0', scriptPath));
+        }
+        if (scriptArguments && /[\r\n]/.test(scriptArguments)) {
+            throw new Error(tl.loc('InvalidScriptArguments0', scriptArguments));
+        }
         let _vsts_input_failOnStandardError = convertToNullIfUndefined(tl.getBoolInput('FailOnStandardError', false));
         let targetAzurePs: string = convertToNullIfUndefined(tl.getInput('TargetAzurePs', false));
         let customTargetAzurePs: string = convertToNullIfUndefined(tl.getInput('CustomTargetAzurePs', false));

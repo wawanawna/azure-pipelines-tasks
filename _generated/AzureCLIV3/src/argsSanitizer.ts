@@ -390,13 +390,14 @@ export function validateScriptArgs(inputArguments: string, scriptType: string): 
 
     const [sanitizedArgs, sanitizerTelemetry] = isPowerShell
         ? sanitizeArgs(expandedArgs, {
-            // PowerShell allowlist: word chars + \ ` _ ' " - = / : . * , + ~ ? % \n #
+            // PowerShell allowlist: word chars + \ ` _ ' " - = / : . * , + ~ ? % #
             // plus the data constructors @ { } [ ] (hashtable, splatting, array, indexing).
             // Backtick is PowerShell's escape symbol; (?!true|false) lets $True / $false pass.
+            // CR/LF are rejected unconditionally below; the (?<!`) lookbehind can't guarantee it.
             // Execution primitives $( ) ; & | remain blocked — those are the attack vectors
             // when a template parameter substitutes into args.
             argsSplitSymbols: '``',
-            saniziteRegExp: new RegExp("(?<!`)([^\\w\\\\` _'\"\\-=\\/:\\.*,+~?%\\n#@{}\\[\\]])(?!true|false)", 'ig')
+            saniziteRegExp: new RegExp("(?<!`)([^\\w\\\\` _'\"\\-=\\/:\\.*,+~?%#@{}\\[\\]])(?!true|false)", 'ig')
         })
         : sanitizeArgs(expandedArgs, {
             // BashV3 allowlist (also used for batch and unknown scriptType).
@@ -404,7 +405,13 @@ export function validateScriptArgs(inputArguments: string, scriptType: string): 
             saniziteRegExp: new RegExp("(?<!\\\\)([^a-zA-Z0-9\\\\ _'\"\\-=\\/:.*+%])", 'g')
         });
 
-    if (sanitizedArgs === inputArguments) {
+    // CR/LF must be rejected unconditionally on the PowerShell path: the allowlist's escape-aware
+    // (?<!`) lookbehind would otherwise exempt a backtick-preceded newline, which survives to the
+    // dot-source sink as a statement separator (MSRC 129198 / WI-75787). Test the expanded form so a
+    // newline injected via $env: expansion is caught too.
+    const hasPsNewline = isPowerShell && /[\r\n]/.test(expandedArgs);
+
+    if (sanitizedArgs === inputArguments && !hasPsNewline) {
         return;
     }
 
@@ -421,7 +428,7 @@ export function validateScriptArgs(inputArguments: string, scriptType: string): 
         }
     }
 
-    if (sanitizedArgs !== expandedArgs) {
+    if (sanitizedArgs !== expandedArgs || hasPsNewline) {
         const offendingChars = collectOffendingChars(
             (sanitizerTelemetry as { removedSymbols?: Record<string, number> } | null)?.removedSymbols
         );

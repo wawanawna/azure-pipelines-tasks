@@ -128,4 +128,18 @@ describe('AzurePowerShell Suite', function () {
                 'env-clear gate must fire for the Threw branch (regression: was skipped when cleanupExitCode stayed 0)');
         });
     });
+
+    describe('MSRC 129198: Node handler rejects newline in ScriptArguments', function () {
+        it('rejects a newline in ScriptArguments before the dot-source sink', async () => {
+            let tp = path.join(__dirname, 'L0NodeRejectsNewline.js');
+            let tr: ttm.MockTestRunner = new ttm.MockTestRunner(tp);
+            await tr.runAsync();
+            if (tr.succeeded) {
+                console.log('STDOUT:', tr.stdout);
+            }
+            assert(!tr.succeeded, 'task must fail on a newline in ScriptArguments');
+            assert(tr.stdout.indexOf('InvalidScriptArguments0') >= 0,
+                'should fail with the InvalidScriptArguments0 loc key (Line breaks are not allowed)');
+        });
+    });
 });

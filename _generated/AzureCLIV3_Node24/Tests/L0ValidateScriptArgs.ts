@@ -57,10 +57,6 @@ export const runValidateScriptArgsTests = () => {
         ['pscore: $false literal allowed (case-insensitive)',
             '-Flag $false', 'pscore',
             ['AZP_75787_ENABLE_NEW_LOGIC=true']],
-        // Regression #22173: arguments: > YAML folded scalars introduce \n.
-        ['pscore: newline whitespace from folded scalar allowed',
-            '-One 1\n-Two 2\n-Three 3', 'pscore',
-            ['AZP_75787_ENABLE_NEW_LOGIC=true']],
         // pscore allows backtick-escaped otherwise-disallowed characters.
         ['pscore: backtick-escaped @ allowed',
             '-Items `@items', 'pscore',
@@ -69,16 +65,12 @@ export const runValidateScriptArgsTests = () => {
         // hashtable, splatting, array literal, indexing, type accelerator —
         // are NOT execution primitives in a PowerShell argument list. They
         // must pass so customers can pass `-Tag @{...}` (the failing case in
-        // the issue) without redirecting through env vars.
+        // the issue) without redirecting through env vars. Single-line only:
+        // MSRC 129198 rejects a CR/LF anywhere in the args when enforce is on.
         //
         // Note: `;` and `( )` remain blocked because they are execution primitives.
-        // Hashtables can use newline separators (which
-        // is the customer's exact case — YAML folded scalar produces \n).
         // Array literals `@(...)` cannot be expressed without `( )` and stay
         // blocked; callers can pass arrays via env vars or splatting.
-        ['pscore: hashtable literal @{ K = "v" } allowed (newline-separated)',
-            '-Tag @{ Solution = "RunnerImagesGeneration"\n      ManagedBy = "Platform-Team" }', 'pscore',
-            ['AZP_75787_ENABLE_NEW_LOGIC=true']],
         ['pscore: splatting @params allowed',
             'Invoke-Build @params', 'pscore',
             ['AZP_75787_ENABLE_NEW_LOGIC=true']],
@@ -90,13 +82,7 @@ export const runValidateScriptArgsTests = () => {
             ['AZP_75787_ENABLE_NEW_LOGIC=true']],
         ['pscore: hashtable value containing @ (email) allowed',
             '-Tag @{ Owner = "team@contoso.com" }', 'pscore',
-            ['AZP_75787_ENABLE_NEW_LOGIC=true']],
-        // Closest reproduction of feliasson's case from issue #22173: a
-        // YAML folded-scalar hashtable with $env:* references for the values
-        // that would otherwise be ADO macros.
-        ['pscore: issue #22173 hashtable literal (folded scalar) passes',
-            '-Tag @{\n      Solution            = "RunnerImagesGeneration"\n      ManagedBy           = "Platform-Team"\n      RequestedFor        = $env:requestedFor\n    }', 'pscore',
-            ['requestedFor=someone@contoso.com', 'AZP_75787_ENABLE_NEW_LOGIC=true']]
+            ['AZP_75787_ENABLE_NEW_LOGIC=true']]
     ];
 
     for (const [testName, inputArguments, scriptType, envVariables] of notThrowTestSuites) {
@@ -129,6 +115,19 @@ export const runValidateScriptArgsTests = () => {
         ['pscore: && command chain',
             'test && whoami', 'pscore',
             ['AZP_75787_ENABLE_NEW_LOGIC=true']],
+        // MSRC 129198: a CR/LF in pscore args is a statement separator at the dot-source sink.
+        ['pscore: newline injects a new statement (MSRC 129198)',
+            '-Foo bar\nWrite-Host INJECTED', 'pscore',
+            ['AZP_75787_ENABLE_NEW_LOGIC=true']],
+        ['pscore: CRLF in args rejected (MSRC 129198)',
+            '-One 1\r\n-Two 2', 'pscore',
+            ['AZP_75787_ENABLE_NEW_LOGIC=true']],
+        ['pscore: multi-line hashtable rejected when enforce on (MSRC 129198; use single-line)',
+            '-Tag @{ a = 1\n b = 2 }', 'pscore',
+            ['AZP_75787_ENABLE_NEW_LOGIC=true']],
+        ['pscore: $env: value containing a newline is blocked (MSRC 129198)',
+            '-x $env:EVIL', 'pscore',
+            ['EVIL=a\nwhoami', 'AZP_75787_ENABLE_NEW_LOGIC=true']],
         ['pscore: bare $ that is not $true/$false/$env',
             '-Name $other', 'pscore',
             ['AZP_75787_ENABLE_NEW_LOGIC=true']],
@@ -184,13 +183,11 @@ export const runValidateScriptArgsTests = () => {
     });
 
     // Regression test for https://github.com/microsoft/azure-pipelines-tasks/issues/22173.
-    // Reconstructs the exact arguments string the task would see *after* ADO has
-    // already substituted ${{ parameters.* }} and $(varName), preserving the
-    // YAML folded-scalar \n characters that the user's telemetry reported as
-    // `removedSymbols: { "$": 4, "{": 1, "\n": 11, "}": 1 }`. Under pscore the
-    // four `$env:*` references must be resolved by expandPowerShellEnvVariables,
-    // `$True` must pass the (?!true|false) lookahead, and the embedded
-    // newlines must pass the PowerShell allowlist that includes `\n`.
+    // Reconstructs the arguments string the task would see *after* ADO has substituted
+    // ${{ parameters.* }} and $(varName). Under pscore the four `$env:*` references must be
+    // resolved by expandPowerShellEnvVariables and `$True` must pass the (?!true|false)
+    // lookahead. Single-line: MSRC 129198 now rejects a CR/LF in the args (the folded-scalar
+    // \n form is covered by the throw-suite), so the args are space-joined here.
     describe('Issue #22173 reproducer (AzureCLI@2 / @3 pscore with $env: and $True)', () => {
         const issue22173Args = [
             '-ImageType Ubuntu2204',
@@ -205,7 +202,7 @@ export const runValidateScriptArgsTests = () => {
             '-TempResourceGroupName rg-test-01',
             '-UseAzureCliAuth $True',
             '-Tag tag1'
-        ].join('\n');
+        ].join(' ');
 
         const repoEnv = [
             'AZP_75787_ENABLE_NEW_LOGIC=true',
@@ -214,7 +211,7 @@ export const runValidateScriptArgsTests = () => {
             'servicePrincipalKey=secret-clean'
         ];
 
-        it('pscore: original failing arguments pass after PowerShell expansion', () => {
+        it('pscore: single-line #22173 args pass after PowerShell expansion', () => {
             setEnv(repoEnv);
             try {
                 assert.doesNotThrow(() => validateScriptArgs(issue22173Args, 'pscore'));
