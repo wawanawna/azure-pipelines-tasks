@@ -160,6 +160,8 @@ describe('AzurePowerShell Suite', function () {
             await tr.runAsync();
             assert(tr.stdout.indexOf('ScriptArgsSanitized') < 0,
                 'sanitizer must be a no-op when the feature flags are off');
+            assert(tr.stdout.indexOf('Endpoint auth data not present') >= 0,
+                'task must proceed past the sanitizer to endpoint acquisition (proves pass-through, not an early failure)');
         });
     });
 });
