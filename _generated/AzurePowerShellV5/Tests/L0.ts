@@ -141,5 +141,25 @@ describe('AzurePowerShell Suite', function () {
             assert(tr.stdout.indexOf('InvalidScriptArguments0') >= 0,
                 'should fail with the InvalidScriptArguments0 loc key (Line breaks are not allowed)');
         });
+
+        it('blocks a ; statement separator in ScriptArguments when the sanitizer FFs are on', async () => {
+            let tp = path.join(__dirname, 'L0NodeSanitizesArgs.js');
+            let tr: ttm.MockTestRunner = new ttm.MockTestRunner(tp);
+            await tr.runAsync();
+            if (tr.succeeded) {
+                console.log('STDOUT:', tr.stdout);
+            }
+            assert(!tr.succeeded, 'task must fail on a ; statement separator under enforce');
+            assert(tr.stdout.indexOf('ScriptArgsSanitized') >= 0,
+                'should fail with the ScriptArgsSanitized loc key');
+        });
+
+        it('does not block a ; statement separator when the sanitizer FFs are off (no-op)', async () => {
+            let tp = path.join(__dirname, 'L0NodeSanitizerNoopWhenOff.js');
+            let tr: ttm.MockTestRunner = new ttm.MockTestRunner(tp);
+            await tr.runAsync();
+            assert(tr.stdout.indexOf('ScriptArgsSanitized') < 0,
+                'sanitizer must be a no-op when the feature flags are off');
+        });
     });
 });

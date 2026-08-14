@@ -6,6 +6,7 @@ import tr = require('azure-pipelines-task-lib/toolrunner');
 import * as telemetry from 'azure-pipelines-tasks-utility-common/telemetry';
 
 import { AzureRMEndpoint } from 'azure-pipelines-tasks-azure-arm-rest/azure-arm-endpoint';
+import { assertNoScriptNewline, tryValidateScriptArgs } from 'azure-pipelines-tasks-args-sanitizer/argsSanitizer';
 var uuidV4 = require('uuid/v4');
 
 function convertToNullIfUndefined<T>(arg: T): T|null {
@@ -31,13 +32,14 @@ async function run() {
         let scriptPath = convertToNullIfUndefined(tl.getPathInput('ScriptPath', false));
         let scriptInline: string = convertToNullIfUndefined(tl.getInput('Inline', false));
         let scriptArguments: string = convertToNullIfUndefined(tl.getInput('ScriptArguments', false));
-        // MSRC 129198: a CR/LF in ScriptArguments / ScriptPath is a PowerShell statement separator at
-        // the dot-source sink below — reject it (parity with the Windows handler, AzurePowerShell.ps1).
-        if (scriptType.toUpperCase() === 'FILEPATH' && scriptPath && /[\r\n]/.test(scriptPath)) {
-            throw new Error(tl.loc('InvalidScriptPath0', scriptPath));
-        }
-        if (scriptArguments && /[\r\n]/.test(scriptArguments)) {
-            throw new Error(tl.loc('InvalidScriptArguments0', scriptArguments));
+        // MSRC 129198: reject CR/LF unconditionally (statement separator at the dot-source sink), and
+        // FF-gated char sanitization for FilePath args, for parity with the Windows handler (AzurePowerShell.ps1).
+        assertNoScriptNewline(scriptArguments, scriptPath, scriptType.toUpperCase() === 'FILEPATH');
+        if (scriptType.toUpperCase() === 'FILEPATH') {
+            tryValidateScriptArgs(scriptArguments || '', 'pscore', {
+                taskName: 'AzurePowerShellV4',
+                pipelineFeatureFlag: 'EnableAzurePowerShellArgumentsSanitization'
+            });
         }
         let _vsts_input_failOnStandardError = convertToNullIfUndefined(tl.getBoolInput('FailOnStandardError', false));
         let targetAzurePs: string = convertToNullIfUndefined(tl.getInput('TargetAzurePs', false));
